@@ -230,7 +230,7 @@ def build_filtergraph(w, h, fps, has_audio, fit="blur"):
         # Cắt giữa cho kín khung.
         graph.append(
             f"[edited]scale={OUT_W}:{OUT_H}:force_original_aspect_ratio=increase:flags=bicubic,"
-            f"crop={OUT_W}:{OUT_H},format=yuv420p[vout]"
+            f"crop={OUT_W}:{OUT_H},format=gbrp[s13]"
         )
     else:
         # Giữ trọn khung hình ở giữa, phần trống phủ bằng chính video phóng to
@@ -242,8 +242,10 @@ def build_filtergraph(w, h, fps, has_audio, fit="blur"):
             f"boxblur=12:2,scale={OUT_W}:{OUT_H}:flags=bicubic[bg];"
             f"[fg0]scale={OUT_W}:{OUT_H}:force_original_aspect_ratio=decrease:"
             "force_divisible_by=2:flags=bicubic[fg];"
-            "[bg][fg]overlay=(W-w)/2:(H-h)/2:format=gbrp,format=yuv420p[vout]"
+            "[bg][fg]overlay=(W-w)/2:(H-h)/2:format=gbrp,format=gbrp[s13]"
         )
+
+    graph.append("[s13]format=yuv420p[vout]")
 
     if has_audio:
         # Bước 9 + 11 cho âm thanh, đồng bộ với hình.
