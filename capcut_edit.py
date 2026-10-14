@@ -17,12 +17,20 @@ Video gốc được dùng làm nền, rồi lần lượt áp dụng đúng th�
  13. Khung 9:16    xuất 1080x1920 (mặc định: video ở giữa, nền là chính video làm mờ)
  17. Bóng ma thị giác  đang tắt (GHOST = False), bật lại nếu cần
  18. Nhiễu hạt     film grain 10%
+ 19. Lớp phủ       video lớp phủ độ mờ 3% chồng lên trên (nếu có)
 
 Các bộ lọc màu được dịch đúng theo đặc tả CSS Filter Effects: mỗi hàm
 (brightness, contrast, saturate, hue-rotate, sepia, grayscale) là một bộ lọc
 riêng, áp theo đúng thứ tự viết, có clamp sau mỗi hàm giống trình duyệt.
 
-Dùng:  python3 capcut_edit.py input.mp4 output.mp4
+Dùng theo thư mục (khuyên dùng):
+  1. Chép video cần edit vào thư mục  video_can_edit/
+  2. Chép video lớp phủ vào thư mục   video_lop_phu/   (không bắt buộc)
+  3. Chạy  python capcut_edit.py   (Windows: bấm đúp chay.bat)
+  4. Lấy kết quả trong thư mục        output/
+  Video được edit lần lượt theo thứ tự chép vào thư mục.
+
+Dùng cho 1 file:  python capcut_edit.py input.mp4 output.mp4 [--overlay lop_phu.mp4]
 """
 
 import argparse
@@ -73,6 +81,14 @@ GHOST_RES = 0.5    # bước 17: dựng bóng ma ở 1/2 độ phân giải (nha
 GHOST_BLUR = 2     # bước 17: bán kính boxblur cho bóng ma (tính ở độ phân giải thấp)
 
 GRAIN_STRENGTH = 10  # bước 18: nhiễu hạt 10% (0-100)
+
+OVERLAY_OPACITY = 0.03  # bước 19: độ mờ của video lớp phủ (0.03 = 3%)
+
+# Thư mục làm việc (nằm cạnh file script)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+INPUT_DIR = os.path.join(BASE_DIR, "video_can_edit")   # video cần edit
+OVERLAY_DIR = os.path.join(BASE_DIR, "video_lop_phu")  # video lớp phủ
+OUTPUT_DIR = os.path.join(BASE_DIR, "output")          # video kết quả
 
 
 # ----------------------------------------------------------------------------
@@ -202,7 +218,7 @@ def build_step17(w, h, fps, inp, out):
     return ";".join(parts)
 
 
-def build_filtergraph(w, h, fps, has_audio, fit="blur"):
+def build_filtergraph(w, h, fps, has_audio, fit="blur", overlay=False):
     v = ["format=rgb48le"]
 
     # Bước 1-5 (bỏ Trắng đen): bộ lọc màu, áp nối tiếp đúng thứ tự.
@@ -316,7 +332,21 @@ def build_filtergraph(w, h, fps, has_audio, fit="blur"):
     else:
         graph.append("[s13]null[s17]")
     # Bước 18: nhiễu hạt trên kênh sáng, thay đổi theo từng khung như hạt phim.
-    graph.append(f"[s17]format=yuv420p,noise=c0s={GRAIN_STRENGTH}:c0f=t+u[vout]")
+    graph.append(f"[s17]format=yuv420p,noise=c0s={GRAIN_STRENGTH}:c0f=t+u[s18]")
+
+    # Bước 19: video lớp phủ (input thứ 2, đã lặp vô hạn) đưa về khung 9:16,
+    # trộn lên trên với độ mờ OVERLAY_OPACITY, dài đúng bằng video chính.
+    if overlay:
+        op = OVERLAY_OPACITY
+        graph.append(
+            f"[1:v]fps={fps},scale={OUT_W}:{OUT_H}:force_original_aspect_ratio=increase:flags=bicubic,"
+            f"crop={OUT_W}:{OUT_H},setsar=1,format=yuv420p,setpts=PTS-STARTPTS[s19_ov]"
+        )
+        graph.append(
+            f"[s18][s19_ov]mix=inputs=2:weights='{1 - op:.4f} {op:.4f}':duration=first[vout]"
+        )
+    else:
+        graph.append("[s18]null[vout]")
 
     if has_audio:
         # Bước 9 + 11 cho âm thanh, đồng bộ với hình.
@@ -333,11 +363,23 @@ def build_filtergraph(w, h, fps, has_audio, fit="blur"):
 # ----------------------------------------------------------------------------
 
 VIDEO_EXTS = (".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v", ".flv", ".wmv", ".3gp", ".ts")
+IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
+
+
+class EditError(Exception):
+    pass
 
 
 def fail(msg):
-    print(f"\nLỖI: {msg}", file=sys.stderr)
-    sys.exit(1)
+    raise EditError(msg)
+
+
+def check_tools():
+    for tool in ("ffmpeg", "ffprobe"):
+        if shutil.which(tool) is None:
+            fail(f"chưa cài {tool} hoặc chưa có trong PATH. Cài FFmpeg rồi mở lại cửa sổ dòng lệnh.\n"
+                 "  Windows:  winget install Gyan.FFmpeg --source winget\n"
+                 "  macOS:    brew install ffmpeg")
 
 
 def check_input(path):
@@ -360,9 +402,8 @@ def check_input(path):
         msg += "".join(f"  - {f}\n" for f in videos[:20])
         msg += f'\nVí dụ chạy:  python capcut_edit.py "{videos[0]}" output.mp4\n'
     else:
-        msg += "\nThư mục này không có file video nào. Hãy chép video vào cùng thư mục với\n"
-        msg += "capcut_edit.py, hoặc ghi đường dẫn đầy đủ trong ngoặc kép, ví dụ:\n"
-        msg += '  python capcut_edit.py "C:\\Users\\Admin\\Videos\\video cua toi.mp4" output.mp4\n'
+        msg += "\nThư mục này không có file video nào. Hãy chép video vào thư mục video_can_edit\n"
+        msg += "rồi chạy  python capcut_edit.py  (không cần ghi tên file).\n"
     fail(msg)
 
 
@@ -386,42 +427,133 @@ def probe(path):
     return _even(int(video["width"])), _even(int(video["height"])), round(fps, 3), has_audio
 
 
+def build_command(inp, out, overlay, args):
+    w, h, fps, has_audio = probe(inp)
+    if overlay:
+        probe(overlay)  # báo lỗi sớm nếu file lớp phủ hỏng
+    graph = build_filtergraph(w, h, fps, has_audio, args.fit, overlay=bool(overlay))
+
+    cmd = ["ffmpeg", "-hide_banner", "-y", "-i", inp]
+    if overlay:
+        # Lớp phủ ngắn hơn video chính thì tự lặp lại; ảnh tĩnh cũng dùng được.
+        loop = ["-loop", "1"] if overlay.lower().endswith(IMAGE_EXTS) else ["-stream_loop", "-1"]
+        cmd += loop + ["-i", overlay]
+    cmd += ["-filter_complex", graph, "-map", "[vout]"]
+    if has_audio:
+        cmd += ["-map", "[aout]", "-c:a", "aac", "-b:a", "192k"]
+    cmd += ["-c:v", "libx264", "-preset", args.preset, "-crf", str(args.crf),
+            "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-f", "mp4", out]
+    info = f"{w}x{h} @ {fps}fps, âm thanh: {'có' if has_audio else 'không'}"
+    return cmd, info
+
+
+def process(inp, out, overlay, args):
+    """Edit 1 video. Ghi ra file tạm rồi mới đổi tên, để video dở dang không
+    bị coi là đã xong nếu bị tắt giữa chừng."""
+    cmd, info = build_command(inp, out, overlay, args)
+    if args.dry_run:
+        print(shlex.join(cmd))
+        return
+    print(f"  Thông tin: {info}", file=sys.stderr)
+    tmp = os.path.splitext(out)[0] + ".dang_xu_ly.mp4"
+    cmd[-1] = tmp
+    code = subprocess.run(cmd).returncode
+    if code != 0:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        fail(f"ffmpeg lỗi (mã {code}) khi xử lý '{os.path.basename(inp)}'.")
+    os.replace(tmp, out)
+
+
+def added_time(path):
+    """Thời điểm file được chép vào thư mục (ngày tạo trên Windows/macOS)."""
+    st = os.stat(path)
+    return getattr(st, "st_birthtime", None) or st.st_ctime
+
+
+def list_media(folder, exts):
+    files = [os.path.join(folder, f) for f in os.listdir(folder)
+             if f.lower().endswith(exts) and not f.startswith((".", "~"))
+             and ".dang_xu_ly." not in f]
+    return sorted((f for f in files if os.path.isfile(f)), key=lambda f: (added_time(f), f.lower()))
+
+
+def run_batch(args):
+    for d in (INPUT_DIR, OVERLAY_DIR, OUTPUT_DIR):
+        os.makedirs(d, exist_ok=True)
+    inputs = list_media(INPUT_DIR, VIDEO_EXTS)
+    overlays = list_media(OVERLAY_DIR, VIDEO_EXTS + IMAGE_EXTS)
+    if not inputs:
+        print("Chưa có video nào trong thư mục video_can_edit.\n"
+              f"  Video cần edit:  {INPUT_DIR}\n"
+              f"  Video lớp phủ:   {OVERLAY_DIR}   (không bắt buộc)\n"
+              f"  Kết quả:         {OUTPUT_DIR}\n"
+              "Chép video vào rồi chạy lại.")
+        return 0
+    print(f"Có {len(inputs)} video cần edit, {len(overlays)} video lớp phủ "
+          f"(độ mờ {OVERLAY_OPACITY * 100:g}%). Edit theo thứ tự chép vào:")
+    if not overlays:
+        print("  (Không có video lớp phủ: bỏ qua bước lớp phủ.)")
+
+    done, skipped, failed = 0, 0, []
+    for i, inp in enumerate(inputs):
+        name = os.path.basename(inp)
+        out = os.path.join(OUTPUT_DIR, f"{i + 1:02d}_{os.path.splitext(name)[0]}.mp4")
+        # Lớp phủ ghép theo thứ tự: video 1 - lớp phủ 1, video 2 - lớp phủ 2, ...
+        # hết lớp phủ thì quay vòng lại từ đầu.
+        overlay = overlays[i % len(overlays)] if overlays else None
+        print(f"\n[{i + 1}/{len(inputs)}] {name}"
+              + (f"  +  lớp phủ: {os.path.basename(overlay)}" if overlay else ""))
+        if os.path.exists(out) and not args.force:
+            print(f"  Đã có {os.path.basename(out)} trong output, bỏ qua (thêm --force để làm lại).")
+            skipped += 1
+            continue
+        try:
+            process(inp, out, overlay, args)
+            done += 1
+            if not args.dry_run:
+                print(f"  Xong -> output/{os.path.basename(out)}")
+        except EditError as e:
+            print(f"  LỖI: {e}", file=sys.stderr)
+            failed.append(name)
+
+    print(f"\nHoàn tất: {done} video xong, {skipped} bỏ qua, {len(failed)} lỗi.")
+    for name in failed:
+        print(f"  - Lỗi: {name}")
+    return 1 if failed else 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("input", help="video gốc")
-    ap.add_argument("output", help="video kết quả (.mp4)")
+    ap.add_argument("input", nargs="?", help="video gốc (bỏ trống = edit cả thư mục video_can_edit)")
+    ap.add_argument("output", nargs="?", help="video kết quả (.mp4)")
+    ap.add_argument("--overlay", help="video lớp phủ khi edit 1 file")
     ap.add_argument("--crf", type=int, default=18, help="chất lượng x264 (thấp = đẹp hơn, mặc định 18)")
     ap.add_argument("--preset", default="medium", help="preset x264 (mặc định medium)")
     ap.add_argument("--fit", choices=["blur", "crop"], default="blur",
                     help="cách đưa vào khung 9:16: blur = video ở giữa, nền mờ (mặc định); "
                          "crop = cắt giữa cho kín khung")
+    ap.add_argument("--force", action="store_true", help="làm lại cả video đã có trong output")
     ap.add_argument("--dry-run", action="store_true", help="chỉ in lệnh ffmpeg, không chạy")
     args = ap.parse_args()
 
-    for tool in ("ffmpeg", "ffprobe"):
-        if shutil.which(tool) is None:
-            fail(f"chưa cài {tool} hoặc chưa có trong PATH. Cài FFmpeg rồi mở lại cửa sổ dòng lệnh.\n"
-                 "  Windows:  winget install Gyan.FFmpeg --source winget\n"
-                 "  macOS:    brew install ffmpeg")
-    check_input(args.input)
-    if os.path.abspath(args.input) == os.path.abspath(args.output):
-        fail("file kết quả phải khác file gốc.")
-
-    w, h, fps, has_audio = probe(args.input)
-    graph = build_filtergraph(w, h, fps, has_audio, args.fit)
-
-    cmd = ["ffmpeg", "-hide_banner", "-y", "-i", args.input,
-           "-filter_complex", graph, "-map", "[vout]"]
-    if has_audio:
-        cmd += ["-map", "[aout]", "-c:a", "aac", "-b:a", "192k"]
-    cmd += ["-c:v", "libx264", "-preset", args.preset, "-crf", str(args.crf),
-            "-pix_fmt", "yuv420p", "-movflags", "+faststart", args.output]
-
-    if args.dry_run:
-        print(shlex.join(cmd))
+    try:
+        check_tools()
+        if args.input is None:
+            return run_batch(args)
+        if args.output is None:
+            fail("thiếu tên file kết quả. Ví dụ:  python capcut_edit.py input.mp4 output.mp4\n"
+                 "Hoặc chạy  python capcut_edit.py  (không ghi gì) để edit cả thư mục video_can_edit.")
+        check_input(args.input)
+        if args.overlay:
+            check_input(args.overlay)
+        if os.path.abspath(args.input) == os.path.abspath(args.output):
+            fail("file kết quả phải khác file gốc.")
+        process(args.input, args.output, args.overlay, args)
         return 0
-    print(f"Input: {w}x{h} @ {fps}fps, audio={'có' if has_audio else 'không'}", file=sys.stderr)
-    return subprocess.run(cmd).returncode
+    except EditError as e:
+        print(f"\nLỖI: {e}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

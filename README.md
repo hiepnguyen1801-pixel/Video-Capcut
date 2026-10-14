@@ -18,6 +18,7 @@ Script `capcut_edit.py` dùng **FFmpeg** để lấy video gốc làm nền rồ
 | 13 | Xuất khung 9:16 (1080×1920) | mặc định: video ở giữa, nền là chính video làm mờ; `--fit crop` để cắt giữa cho kín khung |
 | 17 | ~~Bóng ma thị giác~~ | **đang tắt**; đặt `GHOST = True` để bật lại |
 | 18 | Nhiễu hạt 10% | `noise=c0s=10:c0f=t+u` trên kênh sáng, hạt thay đổi theo từng khung |
+| 19 | Lớp phủ 3% | video trong `video_lop_phu/` đưa về khung 9:16, tự lặp nếu ngắn hơn, trộn lên trên bằng `mix` với độ mờ 3% |
 
 Các bộ lọc màu được tính theo đúng ma trận trong đặc tả CSS Filter Effects, áp từng hàm một và clamp sau mỗi hàm giống trình duyệt.
 
@@ -25,12 +26,34 @@ Các bộ lọc màu được tính theo đúng ma trận trong đặc tả CSS 
 
 Yêu cầu: `ffmpeg`, `ffprobe`, Python 3.
 
+### Edit theo thư mục (khuyên dùng)
+
+| Thư mục | Để làm gì |
+|---|---|
+| `video_can_edit/` | chép các video cần edit vào đây |
+| `video_lop_phu/` | chép video lớp phủ vào đây (không bắt buộc; ảnh .png/.jpg cũng được) |
+| `output/` | video kết quả, đặt tên `01_<tên gốc>.mp4`, `02_...` theo thứ tự |
+
+Chạy (Windows: bấm đúp `chay.bat`):
+
 ```bash
-python3 capcut_edit.py input.mp4 output.mp4
+python capcut_edit.py
+```
+
+- Video được edit **lần lượt theo thứ tự chép vào** thư mục `video_can_edit` (theo ngày tạo file, không theo tên).
+- Lớp phủ ghép theo thứ tự: video 1 ↔ lớp phủ 1, video 2 ↔ lớp phủ 2, … Chỉ có 1 lớp phủ thì dùng chung cho mọi video; hết lớp phủ thì quay vòng lại.
+- Lớp phủ ngắn hơn video thì tự lặp lại; độ mờ đặt ở `OVERLAY_OPACITY = 0.03` (3%).
+- Video đã có trong `output` sẽ được bỏ qua khi chạy lại; thêm `--force` để làm lại hết.
+
+### Edit 1 file
+
+```bash
+python capcut_edit.py input.mp4 output.mp4 --overlay lop_phu.mp4
 ```
 
 Tuỳ chọn:
 
+- `--force` — làm lại cả video đã có trong `output`
 - `--fit blur` / `--fit crop` — cách đưa vào khung 9:16 (mặc định `blur`)
 - `--crf 18` — chất lượng x264 (thấp hơn = đẹp hơn, file nặng hơn)
 - `--preset medium` — tốc độ encode x264 (`veryfast` nhanh hơn)

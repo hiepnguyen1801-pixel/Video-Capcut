@@ -2,3 +2,9 @@
 *.mov
 *.mkv
 __pycache__/
+video_can_edit/*
+video_lop_phu/*
+output/*
+!video_can_edit/.gitkeep
+!video_lop_phu/.gitkeep
+!output/.gitkeep
