@@ -8,9 +8,9 @@ Video gốc được dùng làm nền, rồi lần lượt áp dụng đúng th�
   3. Phim điện ảnh contrast(1.15) saturate(0.9) brightness(0.9) sepia(0.2)
   4. (đã bỏ Trắng đen theo bước 14)
   5. Sáng ấm       sepia(0.3) saturate(1.2) brightness(1.05) contrast(1.05)
-  6. Pulse Zoom    zoom 1 -> 1.25 -> 1 theo hàm sin, chu kỳ 2s
-  7. Gentle Shake  phóng 20% + crop dịch (x, y) theo tổng các hàm sin/cos
-  8. Hard Shake    phóng 20%, rung mạnh mỗi 0.5s rồi tắt dần, trục dọc nảy kiểu bounce
+  6. Pulse Zoom    zoom 1 -> 1.08 -> 1 theo hàm sin, chu kỳ 2s
+  7. Gentle Shake  phóng 4% + crop dịch (x, y) theo tổng các hàm sin/cos
+  8. Hard Shake    phóng 10%, rung mạnh mỗi 0.5s rồi tắt dần, trục dọc nảy kiểu bounce
   9. Tốc độ 1.25x  (cả hình lẫn tiếng)
  10. Lật ngang     hflip
  11. Cắt nhịp      giữ 2s, bỏ 1s, lặp đến hết video
@@ -45,11 +45,11 @@ COLOR_PRESETS = [
     ("Sáng ấm", "sepia(0.3) saturate(1.2) brightness(1.05) contrast(1.05)"),
 ]
 
-PULSE_ZOOM_MAX = 0.25      # bước 6: phóng to tối đa 25% (zoom 1 -> 1.25)
+PULSE_ZOOM_MAX = 0.08      # bước 6: phóng to tối đa 8% (zoom 1 -> 1.08)
 PULSE_ZOOM_PERIOD = 2.0    # bước 6: chu kỳ phóng to rồi thu nhỏ (giây)
 
-GENTLE_SHAKE_SCALE = 1.20  # bước 7: phóng 20% để có lề khi rung
-HARD_SHAKE_SCALE = 1.20    # bước 8: phóng 20% để có lề khi rung mạnh
+GENTLE_SHAKE_SCALE = 1.04  # bước 7: phóng 4% để có lề khi rung
+HARD_SHAKE_SCALE = 1.10    # bước 8: phóng 10% để có lề khi rung mạnh
 HARD_SHAKE_BEAT = 0.5      # bước 8: mỗi phách 0.5s (120 BPM)
 
 SPEED = 1.25               # bước 9

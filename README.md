@@ -9,9 +9,9 @@ Script `capcut_edit.py` dùng **FFmpeg** để lấy video gốc làm nền rồ
 | 3 | Phim điện ảnh `contrast(1.15) saturate(0.9) brightness(0.9) sepia(0.2)` | như trên |
 | 4 | ~~Trắng đen~~ | **đã bỏ** (bước 14) |
 | 5 | Sáng ấm `sepia(0.3) saturate(1.2) brightness(1.05) contrast(1.05)` | như trên |
-| 6 | Pulse Zoom (thu phóng lặp lại) | `perspective`, zoom 1 → 1.25 → 1 theo hàm sin, chu kỳ 2s |
-| 7 | Gentle Shake | `scale` ×1.20 rồi `crop` về kích thước gốc, dịch x, y theo tổng các hàm sin/cos |
-| 8 | Hard Shake / Bounce | `scale` ×1.20 rồi `crop` rung mạnh mỗi 0.5s, tắt dần theo `exp`, trục dọc nảy kiểu bounce |
+| 6 | Pulse Zoom (thu phóng lặp lại) | `perspective`, zoom 1 → 1.08 → 1 theo hàm sin, chu kỳ 2s |
+| 7 | Gentle Shake | `scale` ×1.04 rồi `crop` về kích thước gốc, dịch x, y theo tổng các hàm sin/cos |
+| 8 | Hard Shake / Bounce | `scale` ×1.10 rồi `crop` rung mạnh mỗi 0.5s, tắt dần theo `exp`, trục dọc nảy kiểu bounce |
 | 9 | Tốc độ 1.25x | `setpts=PTS/1.25` + `atempo=1.25` |
 | 10 | Lật ngang | `hflip` |
 | 11 | Giữ 2s, bỏ 1s, lặp đến hết | `select` / `aselect` với `mod(t,3) < 2` |
