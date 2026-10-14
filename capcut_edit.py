@@ -28,7 +28,9 @@ Dùng:  python3 capcut_edit.py input.mp4 output.mp4
 import argparse
 import json
 import math
+import os
 import shlex
+import shutil
 import subprocess
 import sys
 
@@ -319,13 +321,52 @@ def build_filtergraph(w, h, fps, has_audio, fit="blur"):
 # Main
 # ----------------------------------------------------------------------------
 
+VIDEO_EXTS = (".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v", ".flv", ".wmv", ".3gp", ".ts")
+
+
+def fail(msg):
+    print(f"\nLỖI: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def check_input(path):
+    """Báo lỗi dễ hiểu nếu file video không tồn tại."""
+    if os.path.isfile(path):
+        return
+    folder = os.path.dirname(os.path.abspath(path))
+    try:
+        videos = sorted(f for f in os.listdir(folder) if f.lower().endswith(VIDEO_EXTS))
+    except OSError:
+        videos = []
+    msg = f"không tìm thấy file video '{path}' trong thư mục:\n  {folder}\n"
+    # Windows hay ẩn đuôi file: đặt tên "input.mp4" thành ra "input.mp4.mp4".
+    doubled = [f for f in videos if f.lower().startswith(os.path.basename(path).lower())]
+    if doubled:
+        msg += f"\nCó file tên gần giống: '{doubled[0]}' (Windows đang ẩn đuôi file). Hãy chạy:\n"
+        msg += f'  python capcut_edit.py "{doubled[0]}" output.mp4\n'
+    elif videos:
+        msg += "\nCác file video có trong thư mục này:\n"
+        msg += "".join(f"  - {f}\n" for f in videos[:20])
+        msg += f'\nVí dụ chạy:  python capcut_edit.py "{videos[0]}" output.mp4\n'
+    else:
+        msg += "\nThư mục này không có file video nào. Hãy chép video vào cùng thư mục với\n"
+        msg += "capcut_edit.py, hoặc ghi đường dẫn đầy đủ trong ngoặc kép, ví dụ:\n"
+        msg += '  python capcut_edit.py "C:\\Users\\Admin\\Videos\\video cua toi.mp4" output.mp4\n'
+    fail(msg)
+
+
 def probe(path):
-    out = subprocess.run(
+    proc = subprocess.run(
         ["ffprobe", "-v", "error", "-show_streams", "-of", "json", path],
-        check=True, capture_output=True, text=True,
-    ).stdout
-    streams = json.loads(out)["streams"]
-    video = next(s for s in streams if s["codec_type"] == "video")
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    if proc.returncode != 0:
+        fail(f"ffprobe không đọc được file '{path}' (file hỏng hoặc không phải video).\n"
+             f"Chi tiết: {proc.stderr.strip()}")
+    streams = json.loads(proc.stdout).get("streams", [])
+    video = next((s for s in streams if s.get("codec_type") == "video"), None)
+    if video is None:
+        fail(f"file '{path}' không có hình (video stream).")
     has_audio = any(s["codec_type"] == "audio" for s in streams)
     num, den = video.get("avg_frame_rate", "30/1").split("/")
     fps = float(num) / float(den) if float(den) else 30.0
@@ -345,6 +386,15 @@ def main():
                          "crop = cắt giữa cho kín khung")
     ap.add_argument("--dry-run", action="store_true", help="chỉ in lệnh ffmpeg, không chạy")
     args = ap.parse_args()
+
+    for tool in ("ffmpeg", "ffprobe"):
+        if shutil.which(tool) is None:
+            fail(f"chưa cài {tool} hoặc chưa có trong PATH. Cài FFmpeg rồi mở lại cửa sổ dòng lệnh.\n"
+                 "  Windows:  winget install Gyan.FFmpeg --source winget\n"
+                 "  macOS:    brew install ffmpeg")
+    check_input(args.input)
+    if os.path.abspath(args.input) == os.path.abspath(args.output):
+        fail("file kết quả phải khác file gốc.")
 
     w, h, fps, has_audio = probe(args.input)
     graph = build_filtergraph(w, h, fps, has_audio, args.fit)
