@@ -16,6 +16,7 @@ Video gốc được dùng làm nền, rồi lần lượt áp dụng đúng th�
  11. Cắt nhịp      giữ 2s, bỏ 1s, lặp đến hết video
  12. Light Leaks   vệt sáng / film burn hòa trộn chế độ screen
  13. Khung 9:16    xuất 1080x1920 (mặc định: video ở giữa, nền là chính video làm mờ)
+ 17. Bóng ma thị giác  bóng trễ phóng to bám theo chuyển động (ghost / afterimage)
 
 Các bộ lọc màu 1-5 được dịch đúng theo đặc tả CSS Filter Effects: mỗi hàm
 (brightness, contrast, saturate, hue-rotate, sepia, grayscale) là một bộ lọc
@@ -57,6 +58,15 @@ CUT_DROP = 1.0             # bước 11: bỏ 1s
 LEAK_OPACITY = 0.65        # bước 12: độ đậm vệt sáng
 
 OUT_W, OUT_H = 1080, 1920  # bước 13: khung 9:16
+
+# Bước 17: mỗi bóng ma = (trễ giây, phóng to, độ đậm, ánh màu r/g/b).
+# Bóng gần đậm hơn, bóng xa to hơn và mờ hơn -> vệt bóng loang ra như hào quang.
+GHOST_ECHOES = [
+    (0.13, 1.05, 0.50, (0.85, 1.00, 1.10)),  # bóng 1: gần, ánh xanh lơ
+    (0.27, 1.10, 0.32, (1.05, 0.85, 1.10)),  # bóng 2: xa hơn, to hơn, ánh tím hồng
+]
+GHOST_RES = 0.5    # bước 17: dựng bóng ma ở 1/2 độ phân giải (nhanh hơn, mềm như sương)
+GHOST_BLUR = 2     # bước 17: bán kính boxblur cho bóng ma (tính ở độ phân giải thấp)
 
 
 # ----------------------------------------------------------------------------
@@ -138,6 +148,52 @@ def css_filter_to_ffmpeg(css):
 
 def _even(x):
     return int(round(x / 2)) * 2
+
+
+def build_step17(w, h, fps, inp, out):
+    """Bước 17: Bóng ma thị giác.
+
+    Ảnh chính giữ nguyên độ nét; phần "bóng ma" được tính ở 1/2 độ phân giải:
+      ref   = ảnh thu nhỏ + làm mềm (không trễ)
+      bóng  = ref trễ d khung (tpad nhân bản khung đầu nên không đổi số khung),
+              phóng to quanh tâm để loang ra như hào quang
+      thêm  = max(0, bóng - ref) * độ đậm * ánh màu
+    Các phần "thêm" của từng bóng gộp bằng lighten, phóng lên kích thước gốc rồi
+    cộng vào ảnh chính. Chỉ chỗ bóng sáng hơn ảnh hiện tại mới hiện ra: vật sáng
+    di chuyển để lại vệt bóng phía sau, cảnh đứng yên gần như giữ nguyên (chỉ còn
+    quầng sáng mỏng do phóng to). Mọi blend dùng shortest=1 và lấy nhịp theo ảnh
+    chính nên số khung, fps và mốc thời gian không đổi.
+    """
+    n = len(GHOST_ECHOES)
+    gw, gh = _even(w * GHOST_RES), _even(h * GHOST_RES)
+    taps = "".join(f"[s17_r{i}][s17_g{i}]" for i in range(n))
+    parts = [
+        f"[{inp}]split=2[s17_main][s17_src]",
+        f"[s17_src]scale={gw}:{gh}:flags=area,boxblur={GHOST_BLUR}:1,split={2 * n}{taps}",
+    ]
+    for i, (delay, zoom, opacity, (kr, kg, kb)) in enumerate(GHOST_ECHOES):
+        d = max(1, int(round(delay * fps)))           # số khung trễ (>= 1)
+        cw, ch = _even(gw / zoom), _even(gh / zoom)   # vùng giữa, kéo ra = phóng to
+        zoom_f = (f"crop={cw}:{ch}:(iw-ow)/2:(ih-oh)/2,scale={gw}:{gh}:flags=bicubic,"
+                  if (cw, ch) != (gw, gh) else "")
+        gain = lambda k: min(k * opacity, 1.0)
+        parts.append(
+            f"[s17_g{i}]tpad=start={d}:start_mode=clone,{zoom_f}format=gbrp[s17_e{i}]"
+        )
+        # bóng - ref (subtract kẹp về 0), nhân độ đậm và ánh màu bằng LUT
+        parts.append(
+            f"[s17_e{i}][s17_r{i}]blend=all_mode=subtract:shortest=1,"
+            f"lutrgb=r='val*{gain(kr):.4f}':g='val*{gain(kg):.4f}':b='val*{gain(kb):.4f}'"
+            f"[s17_d{i}]"
+        )
+    # gộp các bóng: lấy phần sáng hơn (lighten)
+    cur = "s17_d0"
+    for i in range(1, n):
+        parts.append(f"[{cur}][s17_d{i}]blend=all_mode=lighten:shortest=1[s17_x{i}]")
+        cur = f"s17_x{i}"
+    parts.append(f"[{cur}]scale={w}:{h}:flags=bicubic,format=gbrp[s17_add]")
+    parts.append(f"[s17_main][s17_add]blend=all_mode=addition:shortest=1[{out}]")
+    return ";".join(parts)
 
 
 def build_filtergraph(w, h, fps, has_audio, fit="blur"):
@@ -245,7 +301,9 @@ def build_filtergraph(w, h, fps, has_audio, fit="blur"):
             "[bg][fg]overlay=(W-w)/2:(H-h)/2:format=gbrp,format=gbrp[s13]"
         )
 
-    graph.append("[s13]format=yuv420p[vout]")
+    # Bước 17: Bóng ma thị giác.
+    graph.append(build_step17(OUT_W, OUT_H, fps, "s13", "s17"))
+    graph.append("[s17]format=yuv420p[vout]")
 
     if has_audio:
         # Bước 9 + 11 cho âm thanh, đồng bộ với hình.
