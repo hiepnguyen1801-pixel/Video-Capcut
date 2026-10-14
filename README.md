@@ -16,7 +16,7 @@ Script `capcut_edit.py` dùng **FFmpeg** để lấy video gốc làm nền rồ
 | 11 | Giữ 2s, bỏ 1s, lặp đến hết | `select` / `aselect` với `mod(t,3) < 2` |
 | 12 | ~~Light Leaks / Film Burn~~ | **đang tắt**; đặt `LIGHT_LEAKS = True` để bật lại |
 | 13 | Xuất khung 9:16 (1080×1920) | mặc định: video ở giữa, nền là chính video làm mờ; `--fit crop` để cắt giữa cho kín khung |
-| 17 | Bóng ma thị giác (ghost / afterimage) | 2 bản sao trễ 0.13s / 0.27s, phóng to 5% / 10%, ánh xanh lơ / tím hồng; chỉ cộng phần sáng hơn ảnh hiện tại nên vật chuyển động để lại vệt bóng, cảnh đứng yên gần như không đổi |
+| 17 | ~~Bóng ma thị giác~~ | **đang tắt**; đặt `GHOST = True` để bật lại |
 | 18 | Nhiễu hạt 10% | `noise=c0s=10:c0f=t+u` trên kênh sáng, hạt thay đổi theo từng khung |
 
 Các bộ lọc màu được tính theo đúng ma trận trong đặc tả CSS Filter Effects, áp từng hàm một và clamp sau mỗi hàm giống trình duyệt.

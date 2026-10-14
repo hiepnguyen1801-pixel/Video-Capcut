@@ -15,7 +15,7 @@ Video gốc được dùng làm nền, rồi lần lượt áp dụng đúng th�
  11. Cắt nhịp      giữ 2s, bỏ 1s, lặp đến hết video
  12. Light Leaks   đang tắt (LIGHT_LEAKS = False), bật lại nếu cần
  13. Khung 9:16    xuất 1080x1920 (mặc định: video ở giữa, nền là chính video làm mờ)
- 17. Bóng ma thị giác  bóng trễ phóng to bám theo chuyển động (ghost / afterimage)
+ 17. Bóng ma thị giác  đang tắt (GHOST = False), bật lại nếu cần
  18. Nhiễu hạt     film grain 10%
 
 Các bộ lọc màu được dịch đúng theo đặc tả CSS Filter Effects: mỗi hàm
@@ -62,6 +62,7 @@ LEAK_OPACITY = 0.65        # bước 12: độ đậm vệt sáng
 
 OUT_W, OUT_H = 1080, 1920  # bước 13: khung 9:16
 
+GHOST = False      # bước 17: True để bật lại Bóng ma thị giác
 # Bước 17: mỗi bóng ma = (trễ giây, phóng to, độ đậm, ánh màu r/g/b).
 # Bóng gần đậm hơn, bóng xa to hơn và mờ hơn -> vệt bóng loang ra như hào quang.
 GHOST_ECHOES = [
@@ -310,7 +311,10 @@ def build_filtergraph(w, h, fps, has_audio, fit="blur"):
         )
 
     # Bước 17: Bóng ma thị giác.
-    graph.append(build_step17(OUT_W, OUT_H, fps, "s13", "s17"))
+    if GHOST:
+        graph.append(build_step17(OUT_W, OUT_H, fps, "s13", "s17"))
+    else:
+        graph.append("[s13]null[s17]")
     # Bước 18: nhiễu hạt trên kênh sáng, thay đổi theo từng khung như hạt phim.
     graph.append(f"[s17]format=yuv420p,noise=c0s={GRAIN_STRENGTH}:c0f=t+u[vout]")
 
