@@ -5,20 +5,20 @@ Video gốc được dùng làm nền, rồi lần lượt áp dụng đúng th�
 
   1. Ngà lạnh      brightness(1.1) saturate(0.8) contrast(1.05) hue-rotate(5deg)
   2. Sắc nét 4K    contrast(1.2) saturate(1.15) brightness(1.05)
-  3. Phim điện ảnh contrast(1.15) saturate(0.9) brightness(0.9) sepia(0.2)
-  4. (đã bỏ Trắng đen theo bước 14)
-  5. Sáng ấm       sepia(0.3) saturate(1.2) brightness(1.05) contrast(1.05)
+  3. Sáng ấm       sepia(0.3) saturate(1.2) brightness(1.05) contrast(1.05)
+     (đã bỏ Phim điện ảnh và Trắng đen)
   6. Pulse Zoom    zoom 1 -> 1.08 -> 1 theo hàm sin, chu kỳ 2s
   7. Gentle Shake  phóng 4% + crop dịch (x, y) theo tổng các hàm sin/cos
-  8. Hard Shake    phóng 10%, rung mạnh mỗi 0.5s rồi tắt dần, trục dọc nảy kiểu bounce
-  9. Tốc độ 1.25x  (cả hình lẫn tiếng)
+  8. Hard Shake    phóng 10%, rung nhẹ mỗi 0.5s rồi tắt dần, trục dọc nảy kiểu bounce
+  9. Tốc độ 1.15x  (cả hình lẫn tiếng)
  10. Lật ngang     hflip
  11. Cắt nhịp      giữ 2s, bỏ 1s, lặp đến hết video
- 12. Light Leaks   vệt sáng / film burn hòa trộn chế độ screen
+ 12. Light Leaks   đang tắt (LIGHT_LEAKS = False), bật lại nếu cần
  13. Khung 9:16    xuất 1080x1920 (mặc định: video ở giữa, nền là chính video làm mờ)
  17. Bóng ma thị giác  bóng trễ phóng to bám theo chuyển động (ghost / afterimage)
+ 18. Nhiễu hạt     film grain 10%
 
-Các bộ lọc màu 1-5 được dịch đúng theo đặc tả CSS Filter Effects: mỗi hàm
+Các bộ lọc màu được dịch đúng theo đặc tả CSS Filter Effects: mỗi hàm
 (brightness, contrast, saturate, hue-rotate, sepia, grayscale) là một bộ lọc
 riêng, áp theo đúng thứ tự viết, có clamp sau mỗi hàm giống trình duyệt.
 
@@ -41,7 +41,6 @@ import sys
 COLOR_PRESETS = [
     ("Ngà lạnh", "brightness(1.1) saturate(0.8) contrast(1.05) hue-rotate(5deg)"),
     ("Sắc nét 4K", "contrast(1.2) saturate(1.15) brightness(1.05)"),
-    ("Phim điện ảnh", "contrast(1.15) saturate(0.9) brightness(0.9) sepia(0.2)"),
     ("Sáng ấm", "sepia(0.3) saturate(1.2) brightness(1.05) contrast(1.05)"),
 ]
 
@@ -49,14 +48,16 @@ PULSE_ZOOM_MAX = 0.08      # bước 6: phóng to tối đa 8% (zoom 1 -> 1.08)
 PULSE_ZOOM_PERIOD = 2.0    # bước 6: chu kỳ phóng to rồi thu nhỏ (giây)
 
 GENTLE_SHAKE_SCALE = 1.04  # bước 7: phóng 4% để có lề khi rung
-HARD_SHAKE_SCALE = 1.10    # bước 8: phóng 10% để có lề khi rung mạnh
+HARD_SHAKE_SCALE = 1.10    # bước 8: phóng 10% để có lề khi rung
+HARD_SHAKE_STRENGTH = 0.35 # bước 8: biên độ rung so với lề (0..1), 0.35 = rung nhẹ
 HARD_SHAKE_BEAT = 0.5      # bước 8: mỗi phách 0.5s (120 BPM)
 
-SPEED = 1.25               # bước 9
+SPEED = 1.15               # bước 9
 
 CUT_KEEP = 2.0             # bước 11: giữ 2s
 CUT_DROP = 1.0             # bước 11: bỏ 1s
 
+LIGHT_LEAKS = False        # bước 12: True để bật lại vệt sáng
 LEAK_OPACITY = 0.65        # bước 12: độ đậm vệt sáng
 
 OUT_W, OUT_H = 1080, 1920  # bước 13: khung 9:16
@@ -69,6 +70,8 @@ GHOST_ECHOES = [
 ]
 GHOST_RES = 0.5    # bước 17: dựng bóng ma ở 1/2 độ phân giải (nhanh hơn, mềm như sương)
 GHOST_BLUR = 2     # bước 17: bán kính boxblur cho bóng ma (tính ở độ phân giải thấp)
+
+GRAIN_STRENGTH = 10  # bước 18: nhiễu hạt 10% (0-100)
 
 
 # ----------------------------------------------------------------------------
@@ -231,18 +234,18 @@ def build_filtergraph(w, h, fps, has_audio, fit="blur"):
         "y='(ih-oh)/2*(1+0.6*cos(2*PI*1.1*t+0.5)+0.3*sin(2*PI*3.1*t+2.3))'"
     )
 
-    # Bước 8: Hard Shake / Bounce. Mỗi phách tạo một cú rung mạnh tần số cao,
+    # Bước 8: Hard Shake / Bounce. Mỗi phách tạo một cú rung tần số cao,
     # biên độ tắt dần theo exp, trục y nảy lên kiểu bounce.
     hw, hh = _even(w * HARD_SHAKE_SCALE), _even(h * HARD_SHAKE_SCALE)
     env = f"exp(-9*mod(t,{HARD_SHAKE_BEAT}))"
     v.append(f"scale={hw}:{hh}:flags=bicubic")
     v.append(
         f"crop={w}:{h}:"
-        f"x='(iw-ow)/2*(1+0.95*{env}*sin(2*PI*14*t))':"
-        f"y='(ih-oh)/2*(1-0.95*{env}*abs(cos(2*PI*9*t)))'"
+        f"x='(iw-ow)/2*(1+{HARD_SHAKE_STRENGTH}*{env}*sin(2*PI*14*t))':"
+        f"y='(ih-oh)/2*(1-{HARD_SHAKE_STRENGTH}*{env}*abs(cos(2*PI*9*t)))'"
     )
 
-    # Bước 9: tăng tốc 1.25x, giữ nguyên fps gốc.
+    # Bước 9: tăng tốc, giữ nguyên fps gốc.
     v.append(f"setpts=PTS/{SPEED}")
     v.append(f"fps={fps}")
 
@@ -278,10 +281,13 @@ def build_filtergraph(w, h, fps, has_audio, fit="blur"):
         f"b='{chan(0.15, 0.10, 0.10, 0.35)}',"
         f"scale={w}:{h}:flags=bicubic,format=gbrp[leak]"
     )
-    graph.append(leak)
-    graph.append(
-        f"[base][leak]blend=all_mode=screen:all_opacity={LEAK_OPACITY}:shortest=1[edited]"
-    )
+    if LIGHT_LEAKS:
+        graph.append(leak)
+        graph.append(
+            f"[base][leak]blend=all_mode=screen:all_opacity={LEAK_OPACITY}:shortest=1[edited]"
+        )
+    else:
+        graph.append("[base]null[edited]")
 
     # Bước 13: xuất khung 9:16.
     if fit == "crop":
@@ -305,7 +311,8 @@ def build_filtergraph(w, h, fps, has_audio, fit="blur"):
 
     # Bước 17: Bóng ma thị giác.
     graph.append(build_step17(OUT_W, OUT_H, fps, "s13", "s17"))
-    graph.append("[s17]format=yuv420p[vout]")
+    # Bước 18: nhiễu hạt trên kênh sáng, thay đổi theo từng khung như hạt phim.
+    graph.append(f"[s17]format=yuv420p,noise=c0s={GRAIN_STRENGTH}:c0f=t+u[vout]")
 
     if has_audio:
         # Bước 9 + 11 cho âm thanh, đồng bộ với hình.
